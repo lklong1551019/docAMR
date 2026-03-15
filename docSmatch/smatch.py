@@ -19,7 +19,7 @@ For detailed description of smatch, see http://www.isi.edu/natural-language/amr/
 
 import random
 
-from . import amr
+import amr
 import sys
 import time
 from tqdm import tqdm

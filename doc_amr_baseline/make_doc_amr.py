@@ -6,10 +6,10 @@ from operator import itemgetter
 import copy
 import collections
 import pickle
-import tqdm
+from tqdm import tqdm
 
 import argparse
-from .baseline_io import (
+from baseline_io import (
     
 
     read_amr_add_sen_id,
@@ -22,7 +22,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
 from doc_amr import make_doc_amrs,connect_sen_amrs
 
-from .amr_constituents import get_subgraph_by_id,get_constituents_from_subgraph
+from amr_constituents import get_subgraph_by_id,get_constituents_from_subgraph
 
 
 
@@ -83,7 +83,7 @@ def construct_triples(doc_amrs,from_sen_id,from_node_id,sen_node_pairs,relation,
 
 def process_coref_conll(amrs,coref_chains,add_coref=True,verbose=False,save_triples=False,out=None,relation='same-as',coref_type='allennlp'):
     corefs = {}
-    for doc_id,doc_amrs in tqdm.tqdm(amrs.items()):
+    for doc_id,doc_amrs in tqdm(amrs.items()):
         doc_triples = []
         doc_sids = list(doc_amrs.keys())
         sid_done =[]

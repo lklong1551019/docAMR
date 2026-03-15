@@ -8,7 +8,22 @@ import pickle
 from tqdm import tqdm
 import argparse
 
-predictor = Predictor.from_path("https://storage.googleapis.com/allennlp-public-models/coref-spanbert-large-2021.03.10.tar.gz")
+# predictor = Predictor.from_path("https://storage.googleapis.com/allennlp-public-models/coref-spanbert-large-2021.03.10.tar.gz")
+local_spanbert_path = "models/"
+
+# Use overrides to bypass the broken network calls
+
+predictor = Predictor.from_path("https://storage.googleapis.com/allennlp-public-models/coref-spanbert-large-2021.03.10.tar.gz", overrides={
+
+    # 1. Primary Dataset Reader
+    "dataset_reader.token_indexers.tokens.model_name": local_spanbert_path,
+
+    # 2. Validation Dataset Reader (This is where your current error is)
+    "validation_dataset_reader.token_indexers.tokens.model_name": local_spanbert_path,
+
+    # 3. The Model Embedder itself
+    "model.text_field_embedder.token_embedders.tokens.model_name": local_spanbert_path
+})
 
 def get_allen_coref(filepath,from_amr=False):
     
