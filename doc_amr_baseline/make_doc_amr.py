@@ -254,6 +254,9 @@ def main():
     else:
         corefs = collections.OrderedDict(sorted(corefs.items(),key=lambda t: t[0].split('.')[0]))
     
+    # Coref: OrderedDict([('doc_sen', ([('doc_sen.2.c', 'same-as', 'doc_sen.1.c'), ('doc_sen.4.c', 'same-as', 'doc_sen.1.c'), ('doc_sen.3.s2', 'same-as', 'doc_sen.2.s'),
+    # ('doc_sen.4.s', 'same-as', 'doc_sen.2.s')], ['doc_sen.1', 'doc_sen.2', 'doc_sen.3', 'doc_sen.4'], 'doc_sen'))])
+    
     #use_penman is set to True by default , penman format is used to construct the final doc-amr
     if args.use_penman:
         out_doc_amrs = make_doc_amrs(corefs=corefs,amrs=amrs_penman_dict,chains=False)

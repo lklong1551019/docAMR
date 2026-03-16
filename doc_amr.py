@@ -19,6 +19,9 @@ def make_doc_amrs(corefs, amrs, coref=True,chains=True):
         desc += " (without corefs)"
     for doc_id in tqdm(corefs, desc=desc):
         (doc_corefs,doc_sids,fname) = corefs[doc_id]
+        # doc_corefs: [('doc_sen.2.c', 'same-as', 'doc_sen.1.c'), ('doc_sen.4.c', 'same-as', 'doc_sen.1.c'), ('doc_sen.3.s2', 'same-as', 'doc_sen.2.s'), ('doc_sen.4.s', 'same-as', 'doc_sen.2.s')]
+        # doc_sids: ['doc_sen.1', 'doc_sen.2', 'doc_sen.3', 'doc_sen.4']
+        
         if doc_sids[0] not in amrs:
             import ipdb; ipdb.set_trace()
         doc_amr = copy.deepcopy(amrs[doc_sids[0]])
