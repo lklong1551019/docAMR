@@ -27,6 +27,23 @@ from amr_constituents import get_subgraph_by_id,get_constituents_from_subgraph
 
 
 def get_node_from_subgraph(subgraph,beg,end,doc_amr=None,verbose=False):
+    """
+    Finds the corresponding AMR node ID in a generated subgraph based on character or token span indices.
+
+    This function attempts to match the span `[beg, end]` of a coreference mention with the spans
+    maintained in the constituent structural mappings of the AMR nodes. It employs heuristics such
+    as exact boundary matches, subset boundary inclusion, and head position alignment.
+
+    Args:
+        subgraph (dict): A dictionary describing the graph's structural constituents.
+        beg (int): The beginning token/character index of the entity span.
+        end (int): The ending token/character index of the entity span.
+        doc_amr (AMR, optional): The document level AMR graph.
+        verbose (bool, optional): If True, logs the reasoning behind node alignment matches.
+
+    Returns:
+        str | None: The matching node's ID if found, otherwise None.
+    """
     candidate_nodes = []
     secondary_candidates =[]
     for head in subgraph['constituents']:
@@ -64,6 +81,23 @@ def get_node_from_subgraph(subgraph,beg,end,doc_amr=None,verbose=False):
 
 
 def construct_triples(doc_amrs,from_sen_id,from_node_id,sen_node_pairs,relation,verbose=False):
+    """
+    Generates cross-sentence AMR triples representing the coreference or relational links.
+
+    This binds a specific anchor node back to the nodes found in the sentences listed in `sen_node_pairs`
+    creating relation paths in the format `(Source Node Variable, Relation Label, Target Node Variable)`.
+
+    Args:
+        doc_amrs (dict): A dictionary mapping sentence IDs to their respective AMR graphs.
+        from_sen_id (str): The sentence ID for the anchor reference node.
+        from_node_id (str): The node ID of the anchor reference node within its sentence AMR.
+        sen_node_pairs (list[tuple]): A list of tuples containing (Sentence ID, Node ID) pairs to link.
+        relation (str): The edge relation label to apply between the nodes (e.g., 'same-as').
+        verbose (bool, optional): If True, logs when target or source nodes are not recognized.
+
+    Returns:
+        list[tuple]: A list of generated relation triples.
+    """
     triples = []
     for (full_sen_id,full_node_id) in sen_node_pairs:
         from_node = doc_amrs[full_sen_id].nvars[full_node_id]
@@ -82,6 +116,26 @@ def construct_triples(doc_amrs,from_sen_id,from_node_id,sen_node_pairs,relation,
 
 
 def process_coref_conll(amrs,coref_chains,add_coref=True,verbose=False,save_triples=False,out=None,relation='same-as',coref_type='allennlp'):
+    """
+    Integrates coreference chains globally into the document AMRs by linking mention spans to nodes.
+
+    This maps the parsed coreference mention indices (either in CoNLL or AllenNLP format) to specific
+    AMR node IDs using structural subgraphs, and generates the required interconnecting triplets.
+
+    Args:
+        amrs (dict): Dictionary mapping Document IDs to their respective sentences' AMR structures.
+        coref_chains (dict): A dictionary mapping Document IDs to their coreference chains. 
+                             Each chain is a list of lists of mention spans.
+        add_coref (bool, optional): Flag to trigger coreference linking. Defaults to True.
+        verbose (bool, optional): Enables logging. Defaults to False.
+        save_triples (bool, optional): If True, saves intermediate coreference triples to disk. Defaults to False.
+        out (str, optional): Target path to write intermediate objects to.
+        relation (str, optional): The coreference relation bridging label. Defaults to 'same-as'.
+        coref_type (str, optional): The schema format of the coreferences ('allennlp' or 'conll').
+
+    Returns:
+        dict: A mapping from `doc_id` to its tuple `(doc_triples, doc_sids, doc_id)` for the document AMR construction step.
+    """
     corefs = {}
     for doc_id,doc_amrs in tqdm(amrs.items()):
         doc_triples = []
@@ -139,6 +193,13 @@ def process_coref_conll(amrs,coref_chains,add_coref=True,verbose=False,save_trip
                     
 
 def main():
+    """
+    Main entry point for building document-level AMRs from parallel sentence-level AMR and Coreference data.
+
+    Parses command-line arguments, validates metadata format options, reads AMR files and coreference pairs,
+    and applies `process_coref_conll` to inject intersentential edges. The final document-level AMR is constructed,
+    chain-normalized (based on rules like merge-names, docAMR layout, etc.), and serialized to disk.
+    """
     
     parser = argparse.ArgumentParser()
     parser.add_argument('--path_to_coref',type=str,required=True)
@@ -178,14 +239,16 @@ def main():
     args.path_to_amr+='/'
     assert args.norm_rep in ['docAMR','no-merge','merge-names','merge-all'],'Norm represenation should be one of the following docAMR, no-merge, merge-names, merge-all'
     
-    if not glob.glob(args.path_to_amr+pat+'.amr'):
-        if not glob.glob(args.path_to_amr+pat+'.parse'):
-            raise Exception("--path_to_amr folder does not contain .amr files or .parse files ")
-        else:
-            sort_alpha = True
-            filepaths = glob.iglob(args.path_to_amr+pat+'.parse')
-    else:
+    if glob.glob(args.path_to_amr+pat+'.amr'):
         filepaths = glob.iglob(args.path_to_amr+pat+'.amr')
+    elif glob.glob(args.path_to_amr+pat+'.parse'):
+        sort_alpha = True
+        filepaths = glob.iglob(args.path_to_amr+pat+'.parse')
+    elif glob.glob(args.path_to_amr+pat+'.txt'):
+        sort_alpha = True
+        filepaths = glob.iglob(args.path_to_amr+pat+'.txt')
+    else:
+        raise Exception("--path_to_amr folder does not contain .amr, .parse or .txt files ")
     
     filepaths = list(filepaths)
 
@@ -200,87 +263,70 @@ def main():
     #sorted(filepaths,key=lambda t: t.split('.')[0])
     # sorted_filepaths_dict = {'doc_'+str(idx): item.split('/')[-1].split('.')[0] for idx,item in enumerate(sorted_filepaths)}
     #sorted_filepaths_dict = {'doc_'+str(idx): item.split('/')[-1].split('.')[0] for item in filepaths}
-    for filepath in sorted_filepaths:
-        doc_id = filepath.split('/')[-1].split('.')[0]
-        if args.add_id:
-            amrs[doc_id] = read_amr_add_sen_id(filepath, doc_id,remove_id=args.add_id,tokenize=args.tokenize)
-            if args.path_to_penman is not None:
-                amrs_penman[doc_id] = read_amr_add_sen_id(args.path_to_penman+filepath.split('/')[-1], doc_id,remove_id=args.add_id,tokenize=args.tokenize,ibm_format=False)
-            else:
-                amrs_penman[doc_id] = read_amr_add_sen_id(filepath, doc_id,remove_id=args.add_id,tokenize=args.tokenize,ibm_format=False)
-        else:
-            d_amrs,doc_id = read_amr3_docid(filepath,ibm_format=True)
-            amrs[doc_id] = d_amrs
-            if args.path_to_penman is not None:
-                amrs_penman[doc_id],doc_id = read_amr3_docid(args.path_to_penman+filepath.split('/')[-1],ibm_format=False)
-            else:
-                amrs_penman[doc_id],doc_id = read_amr3_docid(filepath,ibm_format=False)
-        
-        amrs_penman_dict.update(amrs_penman[doc_id])
-
-        amrs_dict.update(amrs[doc_id])
-    
-    
+    coref_chains = {}
     if args.allennlp:
         #Getting coref from allen-nlp Spanbert model
-        coref_chains = {}
         out = pickle.load(open(args.path_to_coref,'rb'))
         for i,(doc_id,val) in enumerate(out.items()):
-
             coref_chains[doc_id] = val
         assert len(coref_chains)>0,"Coref file is empty"
-        corefs = process_coref_conll(amrs,coref_chains,args.add_coref,verbose=args.verbose,save_triples=args.save_triples,coref_type='allennlp')
     elif args.conll:
         from corefconversion.conll_transform import read_file as conll_read_file
         from corefconversion.conll_transform import compute_chains as conll_compute_chains
 
-        coref_chains = {}
         out = conll_read_file(args.path_to_coref)
         for n,(i,val) in enumerate(out.items()):
-            
             docid_spl = i.split('); part ')
             doc_id = docid_spl[0].split('/')[-1]+'_'+str(int(docid_spl[1]))
             coref_chains[doc_id] = conll_compute_chains(val)
-            assert len(coref_chains)>0,"Coref file is empty"
-        corefs = process_coref_conll(amrs,coref_chains,save_triples=args.save_triples,out=args.out_amr,coref_type='conll')
-        
-
-
-    
-    
-    #FIXME sorting of sentence amrs based on filename,change to a universal sorting method
-    if args.add_id and not sort_alpha and not args.sort_alpha:
-        corefs = collections.OrderedDict(sorted(corefs.items(),key=lambda t: int(t[0].split('.')[0].split('_')[-1])))
-    else:
-        corefs = collections.OrderedDict(sorted(corefs.items(),key=lambda t: t[0].split('.')[0]))
-    
-    # Coref: OrderedDict([('doc_sen', ([('doc_sen.2.c', 'same-as', 'doc_sen.1.c'), ('doc_sen.4.c', 'same-as', 'doc_sen.1.c'), ('doc_sen.3.s2', 'same-as', 'doc_sen.2.s'),
-    # ('doc_sen.4.s', 'same-as', 'doc_sen.2.s')], ['doc_sen.1', 'doc_sen.2', 'doc_sen.3', 'doc_sen.4'], 'doc_sen'))])
-    
-    #use_penman is set to True by default , penman format is used to construct the final doc-amr
-    if args.use_penman:
-        out_doc_amrs = make_doc_amrs(corefs=corefs,amrs=amrs_penman_dict,chains=False)
-    else:
-        out_doc_amrs = make_doc_amrs(corefs=corefs,amrs=amrs_dict,chains=False)
+        assert len(coref_chains)>0,"Coref file is empty"
 
     out_dir = args.out_amr.rsplit('/',1)[0]
     if not os.path.isdir(out_dir):
         os.makedirs(out_dir)
 
-    #with open(args.out_amr+'/'+doc_id+'_docamr_'+args.norm_rep+'.out', 'w') as fid:
-    with open(args.out_amr+'/'+args.path_to_amr.split('/')[-1]+'docamr_'+args.norm_rep+'.out', 'w') as fid:
+    for filepath in tqdm(sorted_filepaths, desc='Processing documents'):
+        doc_id = filepath.split('/')[-1].split('.')[0]
         
-        for doc_id,amr in tqdm(out_doc_amrs.items(),'writing doc-amrs'):
-            
+        amrs_doc = {}
+        amrs_penman_doc = {}
+        
+        if args.add_id:
+            amrs_doc[doc_id] = read_amr_add_sen_id(filepath, doc_id,remove_id=args.add_id,tokenize=args.tokenize)
+            if args.path_to_penman is not None:
+                amrs_penman_doc[doc_id] = read_amr_add_sen_id(args.path_to_penman+filepath.split('/')[-1], doc_id,remove_id=args.add_id,tokenize=args.tokenize,ibm_format=False)
+            else:
+                amrs_penman_doc[doc_id] = read_amr_add_sen_id(filepath, doc_id,remove_id=args.add_id,tokenize=args.tokenize,ibm_format=False)
+        else:
+            d_amrs,doc_id = read_amr3_docid(filepath,ibm_format=True)
+            amrs_doc[doc_id] = d_amrs
+            if args.path_to_penman is not None:
+                amrs_penman_doc[doc_id],doc_id = read_amr3_docid(args.path_to_penman+filepath.split('/')[-1],ibm_format=False)
+            else:
+                amrs_penman_doc[doc_id],doc_id = read_amr3_docid(filepath,ibm_format=False)
+        
+        corefs_doc = {}
+        if args.allennlp:
+            corefs_doc = process_coref_conll(amrs_doc,coref_chains,args.add_coref,verbose=args.verbose,save_triples=args.save_triples,coref_type='allennlp')
+        elif args.conll:
+            corefs_doc = process_coref_conll(amrs_doc,coref_chains,save_triples=args.save_triples,out=args.out_amr,coref_type='conll')
+        else:
+            corefs_doc[doc_id] = ([], list(amrs_doc[doc_id].keys()), doc_id)
+
+        if args.use_penman:
+            out_doc_amrs = make_doc_amrs(corefs=corefs_doc,amrs=amrs_penman_doc[doc_id],chains=False)
+        else:
+            out_doc_amrs = make_doc_amrs(corefs=corefs_doc,amrs=amrs_doc[doc_id],chains=False)
+
+        out_file_path = args.out_amr+'/'+doc_id+'_docamr_'+args.norm_rep+'.out'
+        with open(out_file_path, 'w') as fid:
+            for d_id,amr in out_doc_amrs.items():
                 damr = copy.deepcopy(amr)
                 connect_sen_amrs(damr)
                 damr.make_chains_from_pairs()
                 damr.normalize(args.norm_rep)
                 damr_str = damr.__str__()
-                
-                
                 fid.write(damr_str)
-        fid.close()
 
 if __name__ == "__main__":
     main()

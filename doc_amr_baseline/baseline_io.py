@@ -8,9 +8,22 @@ from collections import defaultdict
 
 alignment_regex = re.compile('(-?[0-9]+)-(-?[0-9]+)')
 class AMR2(AMR):
+    """
+    An extension of the AMR class specialized to handle specific metadata 
+    structures, particularly IBM sequence or parsed metadata formats.
+    """
     
     @classmethod
     def get_all_vars(cls, penman_str):
+        """
+        Extracts all node variables from a given Penman string.
+
+        Args:
+            penman_str (str): The Penman formatted string representing an AMR graph.
+
+        Returns:
+            list[str]: A list of extracted variable names.
+        """
         in_quotes = False
         all_vars = []
         for (i,ch) in enumerate(penman_str):
@@ -33,7 +46,14 @@ class AMR2(AMR):
     @classmethod
     def get_node_var(cls, penman_str, node_id):
         """
-        find node variable based on ids like 0.0.1
+        Finds the variable corresponding to a specific node based on its structural hierarchical ID (e.g., 0.0.1).
+
+        Args:
+            penman_str (str): The Penman formatted graph string.
+            node_id (str): The node ID indicating its position in the tree hierarchy.
+
+        Returns:
+            str | None: The variable corresponding to the node ID, or None if not found.
         """
         nid = '99990.0.0.0.0.0.0'
         cidx = []
@@ -92,7 +112,17 @@ class AMR2(AMR):
 
     @classmethod
     def from_metadata(cls, penman_text, tokenize=False):
-        """Read AMR from metadata (IBM style)"""
+        """
+        Reads an AMR graph including comprehensive metadata. Expected metadata
+        fields include ::tok or ::snt, ::node, ::edge, ::root, and ::id.
+
+        Args:
+            penman_text (list[str]): A list of string lines from the AMR block.
+            tokenize (bool): If True, forces tokenization based on the ::snt metadata.
+
+        Returns:
+            AMR2: A parsed AMR2 object populated with metadata arrays.
+        """
 
         # Read metadata from penman
         field_key = re.compile(f'::[A-Za-z]+')
@@ -172,7 +202,8 @@ class AMR2(AMR):
                         nvars[node_id] = None
                     else:
                         nvars[node_id] = var
-                        all_vars.remove(var)
+                        if var in all_vars:
+                            all_vars.remove(var)
             elif key == 'root':
                 root = value[0].split('\t')[1]
             elif key == 'id':
@@ -185,6 +216,17 @@ class AMR2(AMR):
                    alignments=alignments, nvars=nvars, sid=sid)
 
 def read_amr2(file_path, ibm_format=False, tokenize=False):
+    """
+    Reads an AMR file returning a list of AMR (or AMR2) objects.
+
+    Args:
+        file_path (str): The path to the AMR dataset file.
+        ibm_format (bool): If True, parses the graph using metadata fields via AMR2.
+        tokenize (bool): Enables tokenization based on sentence metadata.
+
+    Returns:
+        list[AMR | AMR2]: A list of parsed AMR objects.
+    """
     with open(file_path) as fid:
         raw_amr = []
         raw_amrs = []
@@ -206,6 +248,17 @@ def read_amr2(file_path, ibm_format=False, tokenize=False):
     return raw_amrs
 
 def read_amr3(file_path, ibm_format=False, tokenize=False):
+    """
+    Reads an AMR file, returning a dictionary mapping Sentence IDs to AMR objects.
+
+    Args:
+        file_path (str): The path to the AMR dataset file.
+        ibm_format (bool): If True, forces the format parsing through AMR2.from_metadata.
+        tokenize (bool): Applies dynamic tokenization if required.
+
+    Returns:
+        dict[str, AMR | AMR2]: A dictionary of parsed AMR objects hashed by `sid`.
+    """
     with open(file_path) as fid:
         raw_amr = []
         raw_amrs = {}
@@ -226,6 +279,18 @@ def read_amr3(file_path, ibm_format=False, tokenize=False):
     return raw_amrs
 
 def read_amr3_docid(file_path, ibm_format=False, tokenize=False):
+    """
+    Reads an AMR file, returning a dictionary mapping Sentence IDs to AMR objects
+    along with the overarching Document ID.
+
+    Args:
+        file_path (str): The path to the AMR dataset file.
+        ibm_format (bool): Determines the method to parse metadata.
+        tokenize (bool): Triggers specific tokenization schemes.
+
+    Returns:
+        tuple(dict[str, AMR | AMR2], str): A tuple containing mapping of sentences to AMRs and the root Document ID.
+    """
     doc_id = None
     with open(file_path) as fid:
         raw_amr = []
@@ -251,6 +316,16 @@ def read_amr3_docid(file_path, ibm_format=False, tokenize=False):
 
 #store by sen
 def read_amr_by_snt(file_path, tokenize=False):
+    """
+    Reads an AMR file, grouping the AMRs by their sentence strings or metadata tokenization strings.
+
+    Args:
+        file_path (str): The path to the AMR dataset.
+        tokenize (bool): If True, uses extracted token blocks; otherwise falls back on penman `tok` metadata.
+
+    Returns:
+        dict[str, list[str]]: A dictionary of raw string blocks keyed by the tokenized source string.
+    """
     with open(file_path) as fid:
         raw_amr = []
         raw_amrs = {}

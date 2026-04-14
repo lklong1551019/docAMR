@@ -5,3 +5,6 @@ __pycache__/
 *.pyd
 
 models/
+
+output_dataset_amr
+output_doc_amr

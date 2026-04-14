@@ -18,7 +18,7 @@ predictor = Predictor.from_path("https://storage.googleapis.com/allennlp-public-
     # 1. Primary Dataset Reader
     "dataset_reader.token_indexers.tokens.model_name": local_spanbert_path,
 
-    # 2. Validation Dataset Reader (This is where your current error is)
+    # 2. Validation Dataset Reader
     "validation_dataset_reader.token_indexers.tokens.model_name": local_spanbert_path,
 
     # 3. The Model Embedder itself
@@ -26,6 +26,23 @@ predictor = Predictor.from_path("https://storage.googleapis.com/allennlp-public-
 })
 
 def get_allen_coref(filepath,from_amr=False):
+    """
+    Extracts coreference chains from a document using the pre-loaded AllenNLP SpanBERT Large model.
+
+    This function reads a document file, tokenizes it into sentences, and uses the AllenNLP 
+    predictor to find coreference clusters (mentions referring to the same entity). It translates 
+    the model's global token indices into a nested structure corresponding to sentence index 
+    and the relative token span within that sentence.
+
+    Args:
+        filepath (str): Path to the input file containing the document text or formatted AMR parses.
+        from_amr (bool, optional): If True, extracts sentences specifically from the `::tok` 
+                                   metadata fields inside AMR format files. Defaults to False.
+
+    Returns:
+        list[list[list[int]]]: A list of coreference clusters. Each cluster is a list of entity mentions,
+                               where each mention is defined as `[sentence_index, start_token_idx, end_token_idx]`.
+    """
     
     f1 = open(filepath,'r').read()
     sen_list = f1.splitlines()
@@ -69,9 +86,13 @@ if __name__ == "__main__":
     args.path_to_sen+='/'
    
     
-    i = 0
     if args.from_amr:
-        ext = '.amr'
+        if len(glob.glob(args.path_to_sen+'*.amr')) > 0:
+            ext = '.amr'
+        elif len(glob.glob(args.path_to_sen+'*.parse')) > 0:
+            ext = '.parse'
+        else:
+            ext = '.txt'
     else:
         ext = '.txt'
     
@@ -85,8 +106,7 @@ if __name__ == "__main__":
     for filepath in tqdm(glob.iglob(path_fill)):
         doc_id = filepath.split('/')[-1].split('.')[0]
         clusters = get_allen_coref(filepath,from_amr=args.from_amr)
-        doc_clusters[doc_id] = clusters
-        i+=1
+        doc_clusters[doc_id] = clusters        
     
     if args.path_to_out is None:
         out_path = args.path_to_sen+'/allen_spanbert_large-2021.03.10.coref'
