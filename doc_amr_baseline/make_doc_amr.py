@@ -266,10 +266,13 @@ def main():
     coref_chains = {}
     if args.allennlp:
         #Getting coref from allen-nlp Spanbert model
-        out = pickle.load(open(args.path_to_coref,'rb'))
-        for i,(doc_id,val) in enumerate(out.items()):
-            coref_chains[doc_id] = val
-        assert len(coref_chains)>0,"Coref file is empty"
+        if os.path.isfile(args.path_to_coref):
+            out = pickle.load(open(args.path_to_coref,'rb'))
+            for i,(doc_id,val) in enumerate(out.items()):
+                coref_chains[doc_id] = val
+            assert len(coref_chains)>0,"Coref file is empty"
+        elif os.path.isdir(args.path_to_coref):
+            pass # We will load coref chains incrementally within the document processing loop
     elif args.conll:
         from corefconversion.conll_transform import read_file as conll_read_file
         from corefconversion.conll_transform import compute_chains as conll_compute_chains
@@ -287,46 +290,69 @@ def main():
 
     for filepath in tqdm(sorted_filepaths, desc='Processing documents'):
         doc_id = filepath.split('/')[-1].split('.')[0]
-        
-        amrs_doc = {}
-        amrs_penman_doc = {}
-        
-        if args.add_id:
-            amrs_doc[doc_id] = read_amr_add_sen_id(filepath, doc_id,remove_id=args.add_id,tokenize=args.tokenize)
-            if args.path_to_penman is not None:
-                amrs_penman_doc[doc_id] = read_amr_add_sen_id(args.path_to_penman+filepath.split('/')[-1], doc_id,remove_id=args.add_id,tokenize=args.tokenize,ibm_format=False)
-            else:
-                amrs_penman_doc[doc_id] = read_amr_add_sen_id(filepath, doc_id,remove_id=args.add_id,tokenize=args.tokenize,ibm_format=False)
-        else:
-            d_amrs,doc_id = read_amr3_docid(filepath,ibm_format=True)
-            amrs_doc[doc_id] = d_amrs
-            if args.path_to_penman is not None:
-                amrs_penman_doc[doc_id],doc_id = read_amr3_docid(args.path_to_penman+filepath.split('/')[-1],ibm_format=False)
-            else:
-                amrs_penman_doc[doc_id],doc_id = read_amr3_docid(filepath,ibm_format=False)
-        
-        corefs_doc = {}
-        if args.allennlp:
-            corefs_doc = process_coref_conll(amrs_doc,coref_chains,args.add_coref,verbose=args.verbose,save_triples=args.save_triples,coref_type='allennlp')
-        elif args.conll:
-            corefs_doc = process_coref_conll(amrs_doc,coref_chains,save_triples=args.save_triples,out=args.out_amr,coref_type='conll')
-        else:
-            corefs_doc[doc_id] = ([], list(amrs_doc[doc_id].keys()), doc_id)
-
-        if args.use_penman:
-            out_doc_amrs = make_doc_amrs(corefs=corefs_doc,amrs=amrs_penman_doc[doc_id],chains=False)
-        else:
-            out_doc_amrs = make_doc_amrs(corefs=corefs_doc,amrs=amrs_doc[doc_id],chains=False)
-
         out_file_path = args.out_amr+'/'+doc_id+'_docamr_'+args.norm_rep+'.out'
-        with open(out_file_path, 'w') as fid:
-            for d_id,amr in out_doc_amrs.items():
-                damr = copy.deepcopy(amr)
-                connect_sen_amrs(damr)
-                damr.make_chains_from_pairs()
-                damr.normalize(args.norm_rep)
-                damr_str = damr.__str__()
-                fid.write(damr_str)
+        if os.path.exists(out_file_path):
+            continue
+            
+        try:
+            amrs_doc = {}
+            amrs_penman_doc = {}
+            
+            if args.add_id:
+                amrs_doc[doc_id] = read_amr_add_sen_id(filepath, doc_id,remove_id=args.add_id,tokenize=args.tokenize)
+                if args.path_to_penman is not None:
+                    amrs_penman_doc[doc_id] = read_amr_add_sen_id(args.path_to_penman+filepath.split('/')[-1], doc_id,remove_id=args.add_id,tokenize=args.tokenize,ibm_format=False)
+                else:
+                    amrs_penman_doc[doc_id] = read_amr_add_sen_id(filepath, doc_id,remove_id=args.add_id,tokenize=args.tokenize,ibm_format=False)
+            else:
+                d_amrs,doc_id = read_amr3_docid(filepath,ibm_format=True)
+                amrs_doc[doc_id] = d_amrs
+                if args.path_to_penman is not None:
+                    amrs_penman_doc[doc_id],doc_id = read_amr3_docid(args.path_to_penman+filepath.split('/')[-1],ibm_format=False)
+                else:
+                    amrs_penman_doc[doc_id],doc_id = read_amr3_docid(filepath,ibm_format=False)
+            
+            corefs_doc = {}
+            if args.allennlp:
+                # If path_to_coref is a directory (default streaming pipeline behavior),
+                # dynamically load the isolated .coref file outputted by get_allen_coref.py for this specific document.
+                # E.g. loads '.../dev2010.en-vi.en/doc-1.coref', ensuring minimal memory footprint as it operates doc-by-doc.
+                if os.path.isdir(args.path_to_coref):
+                    coref_path = os.path.join(args.path_to_coref, doc_id + '.coref')
+                    doc_coref = {doc_id: pickle.load(open(coref_path, 'rb'))} if os.path.exists(coref_path) else {}
+                    corefs_doc = process_coref_conll(amrs_doc,doc_coref,args.add_coref,verbose=args.verbose,save_triples=args.save_triples,coref_type='allennlp')
+                else:
+                    # Fallback to the legacy bulk format if path_to_coref points directly to a single large .coref file
+                    corefs_doc = process_coref_conll(amrs_doc,coref_chains,args.add_coref,verbose=args.verbose,save_triples=args.save_triples,coref_type='allennlp')
+            elif args.conll:
+                corefs_doc = process_coref_conll(amrs_doc,coref_chains,save_triples=args.save_triples,out=args.out_amr,coref_type='conll')
+            else:
+                corefs_doc[doc_id] = ([], list(amrs_doc[doc_id].keys()), doc_id)
+    
+            if args.use_penman:
+                out_doc_amrs = make_doc_amrs(corefs=corefs_doc,amrs=amrs_penman_doc[doc_id],chains=False)
+            else:
+                out_doc_amrs = make_doc_amrs(corefs=corefs_doc,amrs=amrs_doc[doc_id],chains=False)
+    
+            out_file_path = args.out_amr+'/'+doc_id+'_docamr_'+args.norm_rep+'.out'
+            with open(out_file_path, 'w') as fid:
+                for d_id,amr in out_doc_amrs.items():
+                    damr = copy.deepcopy(amr)
+                    connect_sen_amrs(damr)
+                    damr.make_chains_from_pairs()
+                    damr.normalize(args.norm_rep)
+                    damr_str = damr.__str__()
+                    fid.write(damr_str)
+        except Exception as e:
+            error_msg = f"Error processing document {doc_id} ({filepath}): {str(e)}\n"
+            print(error_msg)
+            
+            # Log the error to a file in the doc_amr_baseline directory
+            log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "doc_amr_errors.log")
+            with open(log_file, "a") as err_log:
+                import traceback
+                err_log.write(error_msg)
+                err_log.write(traceback.format_exc() + "\n")
 
 if __name__ == "__main__":
     main()

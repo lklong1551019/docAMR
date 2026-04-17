@@ -19,15 +19,19 @@ if [ -z $rep ];then
 fi
 
 if [ -z $path_to_coref ];then
+    # Pipeline automatically processes corefs for the given dataset directory.
     echo "Getting coref for sentences"
-    coref_filename='allen_spanbert_large-2021.03.10.coref'
     python doc_amr_baseline/get_allen_coref.py \
         --path_to_sen $path_to_sentence_amr \
+        --path_to_out $out_amr \
         --from_amr 
-    path_to_coref=$path_to_sentence_amr/$coref_filename
+    
+    # Forward the output folder directory instead of a single .coref file.
+    # make_doc_amr.py downstream handles looping inside this directory natively.
+    path_to_coref=$out_amr
 fi
 
-echo "Doc Level AMRs:"
+echo "Doc Level AMRs"
 python doc_amr_baseline/make_doc_amr.py \
     --path_to_coref $path_to_coref \
     --path_to_amr $path_to_sentence_amr \

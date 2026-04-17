@@ -7,6 +7,7 @@ import glob
 import pickle
 from tqdm import tqdm
 import argparse
+import os
 
 # predictor = Predictor.from_path("https://storage.googleapis.com/allennlp-public-models/coref-spanbert-large-2021.03.10.tar.gz")
 local_spanbert_path = "models/"
@@ -82,7 +83,6 @@ if __name__ == "__main__":
     parser.add_argument('--from_json',action='store_true')
 
     args = parser.parse_args()
-    doc_clusters = {}
     args.path_to_sen+='/'
    
     
@@ -96,21 +96,43 @@ if __name__ == "__main__":
     else:
         ext = '.txt'
     
-    # if from_json:
-    #     json_dict = json.load(open(path_to_sen))
-    #     for doc_id,doc_val in json_dict.items():
-    #             amr_strs = [s['sentence'] for s in doc_val['sentences'].values()]
-    # path_fill = path_to_sen+'doc*'+ext
     path_fill = args.path_to_sen+'*'+ext
 
     for filepath in tqdm(glob.iglob(path_fill)):
+        # Extract the document name (e.g., 'doc-1') from the full path. 
+        # By separating by '/', this perfectly isolates files within varying parent folders (like 'dev2010.en-vi.en' vs 'train_en-vi.en').
         doc_id = filepath.split('/')[-1].split('.')[0]
-        clusters = get_allen_coref(filepath,from_amr=args.from_amr)
-        doc_clusters[doc_id] = clusters        
-    
-    if args.path_to_out is None:
-        out_path = args.path_to_sen+'/allen_spanbert_large-2021.03.10.coref'
-    else:
-        out_path = args.path_to_out+'/allen_spanbert_large-2021.03.10.coref'
-    with open(out_path,'wb') as f2:
-        pickle.dump(doc_clusters,f2)
+        
+        # Save parsed clusters independently per document inside the parent dataset folder.
+        # This "streaming" logic replaces the approach of saving all files into a single huge dictionary, eliminating out-of-memory errors.
+        if args.path_to_out is None:
+            out_filepath = args.path_to_sen + doc_id + '.coref'
+        else:
+            out_filepath = args.path_to_out + '/' + doc_id + '.coref'
+            
+        # Check and skip execution if this specific document has already been processed and cached previously.
+        if os.path.exists(out_filepath):
+            continue
+            
+        # Log the file we are currently attempting to process. If it OOMs here, this log will reveal the culprit.
+        status_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "current_processing_status.log")
+        with open(status_log_path, "w") as status_log:
+            status_log.write(f"Currently processing: {doc_id}\n")
+            
+        try:
+            clusters = get_allen_coref(filepath,from_amr=args.from_amr)
+            with open(out_filepath,'wb') as f2:
+                pickle.dump(clusters,f2)
+        except Exception as e:
+            error_msg = f"Error processing document {doc_id} ({filepath}): {str(e)}\n"
+            print(error_msg)
+            
+            # Log the error to a file
+            log_file = "coref_errors.log"
+            if args.path_to_out:
+                log_file = os.path.join(args.path_to_out, log_file)
+            with open(log_file, "a") as err_log:
+                import traceback
+                err_log.write(error_msg)
+                err_log.write(traceback.format_exc() + "\n")
+
