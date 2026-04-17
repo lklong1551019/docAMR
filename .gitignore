@@ -9,3 +9,4 @@ models/
 output_dataset_amr
 output_doc_amr
 current_processing_status.log
+doc_amr_baseline/current_processing_status.log
