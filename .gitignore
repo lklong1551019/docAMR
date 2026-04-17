@@ -8,3 +8,4 @@ models/
 
 output_dataset_amr
 output_doc_amr
+current_processing_status.log
