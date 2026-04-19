@@ -3,7 +3,7 @@ import json
 import os
 from tqdm import tqdm
 
-def get_official_amr_relations():
+def get_official_amr_relations(max_snt=0):
     """Returns a base set of standard AMR 1.2 relations to guarantee coverage."""
     core_roles = [f":ARG{i}" for i in range(10)]
     
@@ -26,13 +26,16 @@ def get_official_amr_relations():
     op_roles = [f":op{i}" for i in range(1, 101)]
 
     # DocAMR specific tokens
-    docamr_roles = [":same-as"] + [f":snt{i}" for i in range(1, 301)]
+    docamr_roles = [":same-as"]
+    if max_snt > 0:
+        docamr_roles += [f":snt{i}" for i in range(1, max_snt + 1)]
     
     return set(core_roles + non_core + inverse_roles + op_roles + docamr_roles)
 
 def extract_dataset_relations(file_paths):
-    """Parses your actual docAMR files to find dataset-specific relations."""
+    """Parses your actual docAMR files to find dataset-specific relations and max sentence count."""
     dataset_relations = set()
+    max_snt = 0
     
     print(f"Scanning {len(file_paths)} files for relations...")
     for path in tqdm(file_paths, desc="Processing files"):
@@ -46,11 +49,21 @@ def extract_dataset_relations(file_paths):
                 for graph in graphs:
                     for edge in graph.edges():
                         # edge.role contains the relation (e.g., ":ARG0")
-                        dataset_relations.add(edge.role)
+                        role = edge.role
+                        dataset_relations.add(role)
+                        
+                        # Check for :sntN markers to find max sentence index
+                        if role.startswith(":snt"):
+                            try:
+                                snt_num = int(role[4:])
+                                if snt_num > max_snt:
+                                    max_snt = snt_num
+                            except ValueError:
+                                pass
         except Exception as e:
             print(f"Warning: Could not read {path}. Error: {e}")
             
-    return dataset_relations
+    return dataset_relations, max_snt
 
 def main():
     # 1. Automatically find all .out files in the output_doc_amr subdirectories
@@ -75,11 +88,12 @@ def main():
     print(f"Found {len(dataset_files)} AMR output files in subdirectories of {input_dir}")
     
     # 2. Get both sets of relations
-    official_roles = get_official_amr_relations()
-    dataset_roles = extract_dataset_relations(dataset_files)
+    dataset_roles, max_snt = extract_dataset_relations(dataset_files)
+    official_roles = get_official_amr_relations(max_snt)
     
-    print(f"\nFound {len(official_roles)} official AMR relations.")
-    print(f"Found {len(dataset_roles)} relations actually used in your datasets.")
+    print(f"\nDetected maximum sentence index in dataset: {max_snt}")
+    print(f"Found {len(official_roles)} official and synthetic AMR relations (including :snt1 to :snt{max_snt}).")
+    print(f"Found {len(dataset_roles)} unique relations actually used in your datasets.")
     
     # 3. COMBINE THEM (Union of both sets)
     combined_roles = official_roles.union(dataset_roles)
