@@ -44,7 +44,14 @@ def extract_dataset_relations(file_paths):
             with open(path, "r", encoding="utf-8") as f:
                 # Some files might have multiple graphs separated by newlines
                 # penman.load reads the first one, penman.iter reads all
-                graphs = penman.iter(f)
+                # In penman 1.2.1, use load() to get the graph. 
+                # If the file contains multiple graphs, you might need iterdecode.
+                # Since we want to iterate, let's use iterdecode if possible or handle a single graph.
+                try:
+                    graphs = penman.iterdecode(f)
+                except AttributeError:
+                    # Fallback if somehow it's not what we expect
+                    graphs = [penman.load(f)]
                 
                 for graph in graphs:
                     for edge in graph.edges():
