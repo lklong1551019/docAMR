@@ -1,41 +1,13 @@
 import penman
 import json
 import os
+import re
 from tqdm import tqdm
 
-def get_official_amr_relations(max_snt=0):
-    """Returns a base set of standard AMR 1.2 relations to guarantee coverage."""
-    core_roles = [f":ARG{i}" for i in range(10)]
-    
-    # Official non-core relations from AMR guidelines
-    non_core = [
-        ":accompanier", ":age", ":beneficiary", ":cause", ":concession", 
-        ":condition", ":consist-of", ":degree", ":destination", ":direction", 
-        ":domain", ":duration", ":example", ":extent", ":frequency", 
-        ":instrument", ":li", ":location", ":manner", ":medium", ":mod", 
-        ":mode", ":name", ":part", ":path", ":polarity", ":politeness", 
-        ":poss", ":purpose", ":quant", ":scale", ":source", ":subevent", 
-        ":time", ":topic", ":value", ":ord", ":weekday", ":dayperiod", 
-        ":month", ":day", ":year", ":timezone", ":quarter", ":decade", ":era"
-    ]
-    
-    # AMR allows adding "-of" to almost any relation to invert it
-    inverse_roles = [f"{role}-of" for role in core_roles + non_core]
-    
-    # Common op roles for lists/names
-    op_roles = [f":op{i}" for i in range(1, 101)]
-
-    # DocAMR specific tokens
-    docamr_roles = [":same-as"]
-    if max_snt > 0:
-        docamr_roles += [f":snt{i}" for i in range(1, max_snt + 1)]
-    
-    return set(core_roles + non_core + inverse_roles + op_roles + docamr_roles)
-
 def extract_dataset_relations(file_paths):
-    """Parses your actual docAMR files to find dataset-specific relations and max sentence count."""
+    """Parses your actual docAMR files to find dataset-specific relations."""
     dataset_relations = set()
-    max_snt = 0
+    dataset_relations_simple = set()
     
     print(f"Scanning {len(file_paths)} files for relations...")
     for path in tqdm(file_paths, desc="Processing files"):
@@ -43,10 +15,6 @@ def extract_dataset_relations(file_paths):
             # Load graphs using penman
             with open(path, "r", encoding="utf-8") as f:
                 # Some files might have multiple graphs separated by newlines
-                # penman.load reads the first one, penman.iter reads all
-                # In penman 1.2.1, use load() to get the graph. 
-                # If the file contains multiple graphs, you might need iterdecode.
-                # Since we want to iterate, let's use iterdecode if possible or handle a single graph.
                 try:
                     graphs = penman.iterdecode(f)
                 except AttributeError:
@@ -55,22 +23,15 @@ def extract_dataset_relations(file_paths):
                 
                 for graph in graphs:
                     for edge in graph.edges():
-                        # edge.role contains the relation (e.g., ":ARG0")
                         role = edge.role
                         dataset_relations.add(role)
                         
-                        # Check for :sntN markers to find max sentence index
-                        if role.startswith(":snt"):
-                            try:
-                                snt_num = int(role[4:])
-                                if snt_num > max_snt:
-                                    max_snt = snt_num
-                            except ValueError:
-                                pass
+                        role_simple = re.sub(r'\d+', '', role)
+                        dataset_relations_simple.add(role_simple)
         except Exception as e:
             print(f"Warning: Could not read {path}. Error: {e}")
             
-    return dataset_relations, max_snt
+    return dataset_relations, dataset_relations_simple
 
 def main():
     # 1. Automatically find all .out files in the output_doc_amr subdirectories
@@ -95,27 +56,65 @@ def main():
     print(f"Found {len(dataset_files)} AMR output files in subdirectories of {input_dir}")
     
     # 2. Get both sets of relations
-    dataset_roles, max_snt = extract_dataset_relations(dataset_files)
-    official_roles = get_official_amr_relations(max_snt)
+    dataset_roles, dataset_roles_simple = extract_dataset_relations(dataset_files)
     
-    print(f"\nDetected maximum sentence index in dataset: {max_snt}")
-    print(f"Found {len(official_roles)} official and synthetic AMR relations (including :snt1 to :snt{max_snt}).")
-    print(f"Found {len(dataset_roles)} unique relations actually used in your datasets.")
+    print(f"\nFound {len(dataset_roles)} unique relations actually used in your datasets.")
+    
+    # 2.5 Load custom relations from output_dataset_amr
+    amrs_relations_file = "output_dataset_amr/custom_relation_amrs.json"
+    amrs_relations_simple_file = "output_dataset_amr/custom_relation_amrs_simple.json"
+    
+    amrs_roles = set()
+    amrs_roles_simple = set()
+    
+    if not os.path.exists("output_dataset_amr"):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        amrs_relations_file = os.path.join(script_dir, "output_dataset_amr", "custom_relation_amrs.json")
+        amrs_relations_simple_file = os.path.join(script_dir, "output_dataset_amr", "custom_relation_amrs_simple.json")
+        
+    try:
+        if os.path.exists(amrs_relations_file):
+            with open(amrs_relations_file, "r", encoding="utf-8") as f:
+                loaded_roles = json.load(f)
+                amrs_roles.update(loaded_roles)
+            print(f"Loaded {len(loaded_roles)} relations from {amrs_relations_file}")
+    except Exception as e:
+        print(f"Warning: Could not load {amrs_relations_file}: {e}")
+        
+    try:
+        if os.path.exists(amrs_relations_simple_file):
+            with open(amrs_relations_simple_file, "r", encoding="utf-8") as f:
+                loaded_roles_simple = json.load(f)
+                amrs_roles_simple.update(loaded_roles_simple)
+            print(f"Loaded {len(loaded_roles_simple)} relations from {amrs_relations_simple_file}")
+    except Exception as e:
+        print(f"Warning: Could not load {amrs_relations_simple_file}: {e}")
+
+    # Ensure simple logic is fully applied to amrs_roles as well
+    for role in amrs_roles:
+        amrs_roles_simple.add(re.sub(r'\d+', '', role))
     
     # 3. COMBINE THEM (Union of both sets)
-    combined_roles = official_roles.union(dataset_roles)
+    combined_roles = dataset_roles.union(amrs_roles)
+    combined_roles_simple = dataset_roles_simple.union(amrs_roles_simple)
     
     # Sort them alphabetically for clean output
     final_vocab_list = sorted(list(combined_roles))
+    final_vocab_list_simple = sorted(list(combined_roles_simple))
     
     print(f"\nTotal unique relations after combining: {len(final_vocab_list)}")
+    print(f"Total simple unique relations after combining: {len(final_vocab_list_simple)}")
     
-    # 4. Save to a JSON file so your DiffuSeq repo can easily load it
-    output_file = "custom_amr_relations.json"
-    with open(output_file, "w", encoding="utf-8") as f:
+    # 4. Save to JSON files
+    output_file_full = "custom_relation_docamrs.json"
+    with open(output_file_full, "w", encoding="utf-8") as f:
         json.dump(final_vocab_list, f, indent=4)
         
-    print(f"\nSuccessfully saved the combined vocabulary to {output_file}!")
+    output_file_simple = "custom_relation_docamrs_simple.json"
+    with open(output_file_simple, "w", encoding="utf-8") as f:
+        json.dump(final_vocab_list_simple, f, indent=4)
+        
+    print(f"\nSuccessfully saved the combined vocabulary to {output_file_full} and {output_file_simple}!")
 
 if __name__ == "__main__":
     main()
