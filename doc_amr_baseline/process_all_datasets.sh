@@ -5,6 +5,9 @@ OUTPUT_DIR="doc_amr_baseline/output_doc_amr"
 mkdir -p "$OUTPUT_DIR"
 
 for dataset_path in "$INPUT_DIR"/*; do
+    if [[ "$dataset_path" == *.json ]]; then
+        continue
+    fi
     if [ -d "$dataset_path" ]; then
         dataset_name=$(basename "$dataset_path")
         echo "Processing dataset: $dataset_name"
