@@ -17,4 +17,4 @@ for dataset_path in "$INPUT_DIR"/*; do
 done
 
 echo "Generating AMR relations JSON..."
-python doc_amr_baseline/generate_relation_vocab.py
+python doc_amr_baseline/generate_docamr_vocab.py
